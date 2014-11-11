@@ -2,28 +2,21 @@ package SearchAndRescue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Queue;
-import java.util.Random;
 
-import Filtering.MedianFilter;
-import lejos.nxt.Button;
-import lejos.nxt.LCD;
 import lejos.nxt.UltrasonicSensor;
-
-import java.util.Collections;
-import java.util.LinkedList;
  
 /**
- * back and front sensor
+ * left and front sensor
  * Just change the initialLocation variable value and run the simulator
  *
  */
  
- 
 public class Orienteering {
-    public enum algorithmType {logN, STOCHASTIC};
-     
-    private final algorithmType algType;
-    private int numberOfSensors = 2;
+    
+    private final TwoWheeledRobot robot;
+    private final UltrasonicSensor leftSensor;
+    private final UltrasonicSensor frontSensor; 
+    private final int numberOfSensors = 2;
  
  
     // Filtering Constants
@@ -32,12 +25,11 @@ public class Orienteering {
     public int[] dist = new int[5];
     public int distCount = 0;
     public int filterControl, previousDistance, distance;
+	private final double WALL_DISTANCE = 30;
      
-    public int[] currentLocationInfo = new int[3];
     char nextMove;
     int numberOfDecisions = 0;
     double decisionAverage = 0;
-    Random rn = new Random();
      
     //Map variables
     //Map from the project specification
@@ -48,59 +40,68 @@ public class Orienteering {
  
     //Create map using 2d array
     Location[][] map;
-    ArrayList<Character> stepsBackSensor = new ArrayList<Character>();      //Keep track of every movements of the left sensor
+    ArrayList<Character> stepsLeftSensor = new ArrayList<Character>();      //Keep track of every movements of the left sensor
     ArrayList<Character> stepsMiddleSensor = new ArrayList<Character>();    //Keep track of every movements of the middle sensor
     static int arrowCounter = 0;                                            //Count the number of arrows that are still available
      
  
      
     //Constructor
-    public Orienteering(algorithmType algType){
-        this.algType = algorithmType.STOCHASTIC;
+    public Orienteering(UltrasonicSensor ls, UltrasonicSensor fs, TwoWheeledRobot robot){
+    	this.leftSensor = ls;
+    	this.frontSensor = fs;
+    	this.robot = robot;
     }
      
      
      
     public void StartLocalization(){
-         
-          
-        testAllPositions();
- 
- 
+
+        
+        while(checkIfFound() == false){
+            //Checks if there is a wall
+            stepsLeftSensor.add(isThereAWall(leftSensor));
+            stepsMiddleSensor.add(isThereAWall(frontSensor));
+            locationsAnalysis();
+             
+            //If one possible starting position left, break the loop
+            if (checkIfFound()) break;
+             
+            //If there is a wall in front of the robot
+            if (isThereAWall(frontSensor) == 'y'){
+                //turn left or right; 
+                turnLeftOrRight();
+                numberOfDecisions++;
+                 
+            }else{
+                //turn left or right or move forward
+                turnLeftOrRightOrForward();
+                numberOfDecisions++;
+                 
+            }   
+        }
+
     }
  
     // Robot Decision
     private void decision(String d){
         if (d.equals("forward")){
              stepsMiddleSensor.add(moveForward());
-             stepsBackSensor.add(moveBack());
+             stepsLeftSensor.add(moveRight());
+             robot.moveRobot(30);
+
              
-             //Adjust the current location position
-             if(currentLocationInfo[2] == 0){
-                currentLocationInfo[1] += 1;        
-            }else if(currentLocationInfo[2] == 1){
-                currentLocationInfo[0] += 1;
-            }else if(currentLocationInfo[2] == 2){
-                currentLocationInfo[1] -= 1;
-            }else{
-                currentLocationInfo[0] -= 1;
-                }
- 
         }else if (d.equals("turnLeft")){
             stepsMiddleSensor.add(rotate(-90));
-             stepsBackSensor.add(rotate(-90));
-              
-             //adjust the current location orientation
-             if(currentLocationInfo[2] == 0) currentLocationInfo[2] = 3;
-             else currentLocationInfo[2] -= 1;
+             stepsLeftSensor.add(rotate(-90));
+             robot.rotateRobot(-90);
+
               
         }else if(d.equals("turnRight")){
             stepsMiddleSensor.add(rotate(90));
-             stepsBackSensor.add(rotate(90));
-              
-             //adjust the current location orientation
-             if(currentLocationInfo[2] == 3) currentLocationInfo[2] = 0;
-             else currentLocationInfo[2] += 1;
+             stepsLeftSensor.add(rotate(90));
+             robot.rotateRobot(90);
+
               
         }
     }
@@ -117,10 +118,6 @@ public class Orienteering {
     //Move right
     private char moveRight() {
         return 'd';
-    }
-    //Move back
-    private char moveBack() {
-        return 'b';
     }
      
     //Rotate left or right
@@ -139,14 +136,14 @@ public class Orienteering {
     public void locationsAnalysis(){
         arrowCounter = 0;
 //      System.out.print("\n\nSTEP NUMBER: "+stepsMiddleSensor.size() +", " );
-//      System.out.print("("+ stepsBackSensor.get(stepsBackSensor.size() - 1)+ ", " );
+//      System.out.print("("+ stepsLeftSensor.get(stepsLeftSensor.size() - 1)+ ", " );
 //      System.out.print(stepsMiddleSensor.get(stepsMiddleSensor.size() - 1)+ ") " );
          
         //Trigger analysis for the left sensor
             for(int j = 0; j < mInfo.sizeY; j++){
                 for(int i = 0; i < mInfo.sizeX; i++){
                     if (map[i][j] != null){
-                    map[i][j].analyse(stepsBackSensor.get(stepsBackSensor.size() - 1), 0);
+                    map[i][j].analyse(stepsLeftSensor.get(stepsLeftSensor.size() - 1), 0);
                     map[i][j].analyse(stepsMiddleSensor.get(stepsMiddleSensor.size() - 1), 1);
                      
                     }
@@ -185,12 +182,6 @@ public class Orienteering {
                     for(int k = 0; k<4 ;k++){
                         map[i][j].currentLocation[0][k] = map[i][j];
                         map[i][j].currentLocation[1][k] = map[i][j];
-                         
-                        map[i][j].currentOrientation[0][k] = k;
-                        map[i][j].currentOrientation[1][k] = k;
-                         
-                        map[i][j].initialOrientations[k] = true;
- 
                     }
             }
         }
@@ -211,15 +202,15 @@ public class Orienteering {
     // Return shortest path in an arrayList
     public ArrayList<Location> shortestPath(Location a, Location b){
          
-        Queue<Location> q = new LinkedList<Location>();
+        Queue<Location> q = new Queue<Location>();
         ArrayList<Location> path = new ArrayList<Location>();
          
-        q.add(a);
+        q.push(a);
         a.visited = true;
          
         while (!q.isEmpty()){
             //Current location
-            Location current = q.remove();
+            Location current = (Location) q.pop();
              
             //If the current location is equal to final location
             if(current.gridX == b.gridX && current.gridY == b.gridY){ 
@@ -233,14 +224,13 @@ public class Orienteering {
             //If it's not null or has never been visited, then add to queue
             for(int i = 0; i < current.adjacentLocations.length; i++){
                 if (current.adjacentLocations[i] != null && current.adjacentLocations[i].visited == false){
-                    q.add(current.adjacentLocations[i]);
+                    q.push(current.adjacentLocations[i]);
                     current.adjacentLocations[i].visited = true;
                     current.adjacentLocations[i].previous = current;
                 }
             }
         }
         //Return path
-        Collections.reverse(path);
         return path;
     }
     // Return starting position
@@ -291,19 +281,6 @@ public class Orienteering {
     //turn left or right;
     public void turnLeftOrRight(){
          
-        //Choose between stochastic and logN
-        if (algType == algorithmType.STOCHASTIC){
-             
-            //turn left or right
-            nextMove = random(new char[] {'l', 'r'});
-            if (nextMove == 'l')    
-                decision("turnLeft");
-            else if (nextMove == 'r')                   
-                decision("turnRight");           
-             
-             locationsAnalysis();
-        }
-        else{
              
             int[] left = {0,0,0};
             int[] right = {0,0,0};
@@ -327,6 +304,7 @@ public class Orienteering {
                 left[0] += Math.abs(left[1] - left[2]);
                 right[0] += Math.abs(right[1] - right[2]);
                  
+                 
                 //Reset values for next sensor
                 left[1] =0;
                 left[2] =0;
@@ -334,11 +312,10 @@ public class Orienteering {
                 right[2] =0;
  
             }
- 
              
             //If both left and right direction are equally good, pick the one without a wall
             if(left[0] == right[0]){
-                if (checkForWall(0)) decision("turnRight");
+                if (checkForWall(leftSensor)) decision("turnRight");
                 else decision("turnLeft");
             }
             else if (left[0] < right[0])
@@ -349,26 +326,13 @@ public class Orienteering {
              
             locationsAnalysis();
         }
+  
  
-    }
+    
      
     public void turnLeftOrRightOrForward(){
          
-        //Choose between stochastic and logN
-        if (algType == algorithmType.STOCHASTIC){
-             
-            //turn left or right or move forward
-            nextMove = random(new char[] {'l',  'f', 'r'});
-            if (nextMove == 'l')    
-                decision("turnLeft");
-            else if (nextMove == 'r')                   
-                decision("turnRight");         
-            else
-                decision("forward");     
-             
-             locationsAnalysis();
-        }
-        else{
+
             int[] left = {0,0,0};
             int[] forward = {0,0,0};
             int[] right = {0,0,0};
@@ -394,8 +358,7 @@ public class Orienteering {
                  
                 left[0] += Math.abs(left[1] - left[2]);
                 right[0] += Math.abs(right[1] - right[2]);
-                forward[0] += Math.abs(forward[1] - forward[2]);
-                 
+                forward[0] += Math.abs(forward[1] - forward[2]);    
                  
                 //Reset values for next sensor
                 left[1] =0;
@@ -414,7 +377,7 @@ public class Orienteering {
             }
             //If both left and right direction are equally good, pick the one without a wall
             else if(left[0] == right[0]){
-                if (checkForWall(0)) decision("turnRight");
+                if (checkForWall(leftSensor)) decision("turnRight");
                 else decision("turnLeft");
             }
             else if (left[0] < right[0])
@@ -425,250 +388,81 @@ public class Orienteering {
             locationsAnalysis();
         }
  
- 
-    }
-    //Determines if there is a wall or not in front of each sensor (only for the simulator)
-    //add trigger a location analysis
-    //It uses the current location since we know it but the robot does not.
-    public void sensorAnalyse() {
- 
-        boolean b, m;
-         
-        b = checkForWall(0);
-        m = checkForWall(1);
- 
- 
- 
-        if (b) stepsBackSensor.add(wallDistance(15));
-        else stepsBackSensor.add(wallDistance(35));
-         
-        if (m) stepsMiddleSensor.add(wallDistance(15));
-        else stepsMiddleSensor.add(wallDistance(35));
- 
-        locationsAnalysis();
-//        System.out.println("####################### Found? : " + checkIfFound());
-         
-    }
      
     //Return if the sensor is seeing a wall
-    // sensor = 0 -> back sensor
-    // sensor = 1 -> middle sensor
-    // sensor = 2 -> right sensor
     //true -> there is a wall, false -> there is no wall
-    public boolean checkForWall(int sensor){
+    public boolean checkForWall(UltrasonicSensor us){
          
-        //left sensor
-        if(sensor == 0){
-                if (map[currentLocationInfo[0]][currentLocationInfo[1]].adjacentLocations[(currentLocationInfo[2] + 2)%4] == null){
-                    return true;
-                }
-                else
-                    return false;
-        }
-        //middle sensor
-        else if(sensor == 1){
-            if (map[currentLocationInfo[0]][currentLocationInfo[1]].adjacentLocations[currentLocationInfo[2]] == null){
-                return true;
-            }
-            else
-                return false;
-             
-        }
-        //right sensor
-        else{
-            if (map[currentLocationInfo[0]][currentLocationInfo[1]].adjacentLocations[(currentLocationInfo[2] + 1)%4] == null){
-                return true;
-            }
-            else
-                return false;
-        }
- 
+    		if (isThereAWall(us) == 'y')
+    			return true;
+    		else
+    			 return false;
+    
     }
-     
-    //Test all positions and prints average
-    public void testAllPositions(){
-         System.out.println("Results:");
-             
-            for(int x = 0; x < mInfo.sizeX; x ++){
-                loop:
-                for (int y = 0; y < mInfo.sizeY; y++){
-                    for(int theta = 0; theta < 4; theta++){
-                        for(int b = 0; b < mInfo.obstacles.length; b++){
-                            if (x == mInfo.obstacles[b][0] && y == mInfo.obstacles[b][1]) break loop;
-                        }
-                    stepsBackSensor.clear();
-                    stepsMiddleSensor.clear();
-                    numberOfDecisions = 0;
-                    arrowCounter = 0;
- 
-                    currentLocationInfo[0] = x;
-                    currentLocationInfo[1] = y;
-                    currentLocationInfo[2] = theta;
-                     
-                    initializeLocations(mInfo);
-                     
-                    //Add a left rotation for the left sensor and a right rotation for the right sensor
-                    //to match the current orientation of the robot.
-                    stepsBackSensor.add(rotate(-90));
- 
-                     
-                    //Analyse the left sensor
-                    for(int j = 0; j < mInfo.sizeY; j++){
-                        for(int i = 0; i < mInfo.sizeX; i++){
-                            if (map[i][j] != null)
-                            map[i][j].analyse(stepsBackSensor.get(stepsBackSensor.size() - 1), 0);
-                        }
-                    }
-                     
-                     
-                    //Add a left rotation for the left sensor and a right rotation for the right sensor
-                    //to match the current orientation of the robot.
-                    stepsBackSensor.add(rotate(-90));
- 
-                     
-                    //Analyse the left sensor
-                    for(int j = 0; j < mInfo.sizeY; j++){
-                        for(int i = 0; i < mInfo.sizeX; i++){
-                            if (map[i][j] != null)
-                            map[i][j].analyse(stepsBackSensor.get(stepsBackSensor.size() - 1), 0);
-                        }
-                    }
- 
-                     
-                    while(checkIfFound() == false){
-                        //Checks if there is a wall
-                        sensorAnalyse();
-                         
-                         
-                        //If one possible starting position left, break the loop
-                        if (checkIfFound()) break;
-                         
-                        //If there is a wall in front of the robot
-                        if (map[currentLocationInfo[0]][currentLocationInfo[1]].adjacentLocations[currentLocationInfo[2]] == null){
-                            //turn left or right; 
-                            turnLeftOrRight();
-                            numberOfDecisions++;
-                             
-                        }else{
-                            //turn left or right or move forward
-                            turnLeftOrRightOrForward();
-                            numberOfDecisions++;
-                             
-                        }   
-                         
-                        }
- 
- 
-                      System.out.print("\nInitial location: " + Arrays.toString(getInitialLocation()));
-                      System.out.print("\tCurrent location: " + Arrays.toString(getCurrentLocation()));
-                      System.out.print("\tNumber of decisions: " + numberOfDecisions +"\t\t");
-                      decisionAverage += numberOfDecisions;
-                       
-                    //Print the decisions taken by the robot
-                      for(int i = 0; i < stepsMiddleSensor.size(); i++){
-                        if(stepsMiddleSensor.get(i).equals('y') || stepsMiddleSensor.get(i).equals('n'));
-                        else System.out.print(stepsMiddleSensor.get(i) + " ");
- 
-                        }
-                    }
-                }   
-            }
-             
-            System.out.println("\nDecision average: " + decisionAverage/544);
-    }
- 
-    //Test one particular position with this format {int Xpos, int Ypos, int heading}
-        public void testOnePosition(int x, int y, int theta){
-             
-            currentLocationInfo[0] = x;
-            currentLocationInfo[1] = y;
-            currentLocationInfo[2] = theta;
-             
-            initializeLocations(mInfo);
-             
-            //Add a left rotation for the left sensor and a right rotation for the right sensor
-            //to match the current orientation of the robot.
-            stepsBackSensor.add(rotate(-90));
- 
-             
-            //Analyse the left sensor
-            for(int j = 0; j < mInfo.sizeY; j++){
-                for(int i = 0; i < mInfo.sizeX; i++){
-                    if (map[i][j] != null)
-                    map[i][j].analyse(stepsBackSensor.get(stepsBackSensor.size() - 1), 0);
-                }
-            }
-             
-            stepsBackSensor.add(rotate(-90));
- 
-             
-            //Analyse the left sensor
-            for(int j = 0; j < mInfo.sizeY; j++){
-                for(int i = 0; i < mInfo.sizeX; i++){
-                    if (map[i][j] != null)
-                    map[i][j].analyse(stepsBackSensor.get(stepsBackSensor.size() - 1), 0);
-                }
-            }
-             
-             
-            while(checkIfFound() == false){
-                //Checks if there is a wall
-                sensorAnalyse();
-                 
-                 
-                //If one possible starting position left, break the loop
-                if (checkIfFound()) break;
-                 
-                //If there is a wall in front of the robot
-                if (map[currentLocationInfo[0]][currentLocationInfo[1]].adjacentLocations[currentLocationInfo[2]] == null){
-                    //turn left or right; 
-                    turnLeftOrRight();
-                    numberOfDecisions++;
-                     
-                }else{
-                    //turn left or right or move forward
-                    turnLeftOrRightOrForward();
-                    numberOfDecisions++;
-                     
-                }   
-            }
-              
-              
-             //Print initial and current location of the robot if found
- 
-                  
-                 System.out.println("Results:");
-                 System.out.println("Initial location: " + Arrays.toString(getInitialLocation()));
-                 System.out.println("Current location: " + Arrays.toString(getCurrentLocation()));
-                 System.out.println("Number of decisions: " + numberOfDecisions);
-                 System.out.print("Decisions order: ");
-                  
-             //Print the decisions taken by the robot
-                 for(int i = 0; i < stepsMiddleSensor.size(); i++){
-                     if(stepsMiddleSensor.get(i).equals('y') || stepsMiddleSensor.get(i).equals('n'));
-                     else System.out.print(stepsMiddleSensor.get(i) + " ");
-                 }
-                  
-                  
-                 int[] current = getCurrentLocation();
-                ArrayList<Location> path = shortestPath (map[current[0]][current[1]], map[3][3]);
-                 
-                 
-                //Print the path finding steps
-                System.out.println("\n\nPath finding steps: ");
-                for(int i = 0; i < path.size(); i++){
-                    System.out.println(path.get(i).gridX + ", " + path.get(i).gridY);
-                }
-        }
-         
-        //Random
-        public char random(char[] c){
-            int answer = rn.nextInt(c.length) + 1;
-             
-            if(answer == 1)return 'l';
-            else if(answer == 2)return 'f';
-            else return 'r';
-         
-        }
- 
+
+  //Get Distance
+  	private int getFilteredData(UltrasonicSensor us) {
+  		int distance;
+  		// do a ping
+  		us.ping();
+
+  		// wait for the ping to complete
+  		try {
+  			Thread.sleep(50);
+  		} catch (InterruptedException e) {
+  		}
+
+  		// there will be a delay here
+  		distance = us.getDistance();
+  		// Filter set distance var to 255 if it has been repeated 4 times
+  		if (distance == 255 && previousDistance == 255
+  				&& filterControl < FILTER_OUT) {
+  			// bad value, do not set the distance var, but increment
+  			// repeated
+  			// 255 counter
+  			filterControl++;
+  		} else if (distance == 255 && previousDistance == 255) {
+  			// true 255, set the distance to 255
+  			this.distance = distance;
+  		} else if (distance == 255) {
+  			// distance of 255 is not repeated
+  			previousDistance = distance;
+  		} else {
+  			// distance went below 255, therefore reset everything
+  			filterControl = 0;
+  			previousDistance = distance;
+  			this.distance = distance;
+  		}
+  		return this.distance;
+  	}
+  	
+  	//Get median of an array
+  	private int getMedian(int [] a){
+  		Arrays.sort(a);
+  		if (a.length % 2 == 0)
+  		   return (a[a.length/2] + a[a.length/2 - 1])/2;
+  		else
+  		   return a[a.length/2];
+  	}
+  	
+  //Observe if there is a wall
+  	private char isThereAWall(UltrasonicSensor us){
+  		int[] wallDistances = new int[5];
+  		for (int i = 0; i < wallDistances.length; i++) {
+  			try {
+  				Thread.sleep(50);
+  			} catch (InterruptedException e) {
+  			}
+  			wallDistances[i] = getFilteredData(us);
+  		}
+  		int wallDistance = getMedian(wallDistances);
+  		if (wallDistance < WALL_DISTANCE) {
+  			return 'y';
+  		}
+  		return 'n';
+  	}
+  	
 }
+
+
+
